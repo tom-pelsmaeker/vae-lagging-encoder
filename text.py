@@ -30,33 +30,37 @@ def init_config():
     parser.add_argument('--momentum', type=float, default=0, help='sgd momentum')
     parser.add_argument('--nsamples', type=int, default=1, help='number of samples for training')
     parser.add_argument('--iw_nsamples', type=int, default=500,
-                         help='number of samples to compute importance weighted estimate')
+                        help='number of samples to compute importance weighted estimate')
 
     # select mode
     parser.add_argument('--eval', action='store_true', default=False, help='compute iw nll')
     parser.add_argument('--load_path', type=str, default='')
-
 
     # decoding
     parser.add_argument('--decode_from', type=str, default="", help="pretrained model path")
     parser.add_argument('--decoding_strategy', type=str, choices=["greedy", "beam", "sample"], default="greedy")
     parser.add_argument('--decode_input', type=str, default="", help="input text file to perform reconstruction")
 
-
     # annealing paramters
     parser.add_argument('--warm_up', type=int, default=10, help="number of annealing epochs")
     parser.add_argument('--kl_start', type=float, default=1.0, help="starting KL weight")
+    parser.add_argument('--mdr', type=float, default=0.0, help="MDR for lag optimisation")
+
+    # prior parameters
+    parser.add_argument('--learned_prior', action='store_true', default=False, help='whether to learn the prior')
+    parser.add_argument('--num_components', type=int, default=0,
+                        help='when > 0, number of Gaussian mixture components.')
 
     # inference parameters
     parser.add_argument('--aggressive', type=int, default=0,
-                         help='apply aggressive training when nonzero, reduce to vanilla VAE when aggressive is 0')
+                        help='apply aggressive training when nonzero, reduce to vanilla VAE when aggressive is 0')
     # others
     parser.add_argument('--seed', type=int, default=783435, metavar='S', help='random seed')
+    parser.add_argument('--device', type=int, default=0, help='cuda-device')
 
     # these are for slurm purpose to save model
     parser.add_argument('--jobid', type=int, default=0, help='slurm job id')
     parser.add_argument('--taskid', type=int, default=0, help='slurm task id')
-
 
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()
@@ -73,9 +77,14 @@ def init_config():
     seed_set = [783435, 101, 202, 303, 404, 505, 606, 707, 808, 909]
     args.seed = seed_set[args.taskid]
 
-    id_ = "%s_aggressive%d_kls%.2f_warm%d_%d_%d_%d" % \
+    if args.num_components == 0:
+        id_ = "%s_aggressive%d_kls%.2f_warm%d_%d_%d_%d_%d" % \
             (args.dataset, args.aggressive, args.kl_start,
-             args.warm_up, args.jobid, args.taskid, args.seed)
+             args.warm_up, args.jobid, args.taskid, args.seed, args.mdr)
+    else:
+        id_ = "%s_aggressive%d_kls%.2f_warm%d_%d_%d_%d_%d_%d" % \
+            (args.dataset, args.aggressive, args.kl_start,
+             args.warm_up, args.jobid, args.taskid, args.seed, args.mdr, args.num_components)
 
     save_path = os.path.join(save_dir, id_ + '.pt')
 
@@ -113,6 +122,7 @@ def reconstruct(model, data, strategy, fname, device):
             for sent in decoded_batch:
                 fout.write(" ".join(sent) + "\n")
 
+
 def sample_from_prior(model, z, strategy, fname):
     with open(fname, "w") as fout:
         decoded_batch = model.decode(z, strategy)
@@ -133,7 +143,6 @@ def test(model, test_data_batch, mode, args, verbose=True):
 
         report_num_sents += batch_size
 
-
         loss, loss_rc, loss_kl = model.loss(batch_data, 1.0, nsamples=args.nsamples)
 
         assert(not loss_rc.requires_grad)
@@ -141,24 +150,25 @@ def test(model, test_data_batch, mode, args, verbose=True):
         loss_rc = loss_rc.sum()
         loss_kl = loss_kl.sum()
 
-
         report_rec_loss += loss_rc.item()
         report_kl_loss += loss_kl.item()
 
     mutual_info = calc_mi(model, test_data_batch)
+    cc, ckl = model.encoder.check_collapsed_components()
 
-    test_loss = (report_rec_loss  + report_kl_loss) / report_num_sents
+    test_loss = (report_rec_loss + report_kl_loss) / report_num_sents
 
     nll = (report_kl_loss + report_rec_loss) / report_num_sents
     kl = report_kl_loss / report_num_sents
     ppl = np.exp(nll * report_num_sents / report_num_words)
     if verbose:
-        print('%s --- avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f, nll: %.4f, ppl: %.4f' % \
-               (mode, test_loss, report_kl_loss / report_num_sents, mutual_info,
-                report_rec_loss / report_num_sents, nll, ppl))
+        print('%s --- avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f, nll: %.4f, ppl: %.4f, cc: %d, ckl: %.4f' %
+              (mode, test_loss, report_kl_loss / report_num_sents, mutual_info,
+               report_rec_loss / report_num_sents, nll, ppl, cc, ckl))
         sys.stdout.flush()
 
     return test_loss, nll, kl, ppl, mutual_info
+
 
 def calc_iwnll(model, test_data_batch, args, ns=100):
     report_nll_loss = 0
@@ -186,6 +196,7 @@ def calc_iwnll(model, test_data_batch, args, ns=100):
     sys.stdout.flush()
     return nll, ppl
 
+
 def calc_mi(model, test_data_batch):
     mi = 0
     num_examples = 0
@@ -196,6 +207,7 @@ def calc_mi(model, test_data_batch):
         mi += mutual_info * batch_size
 
     return mi / num_examples
+
 
 def calc_au(model, test_data_batch, delta=0.01):
     """compute the number of active units
@@ -232,9 +244,9 @@ def main(args):
     class uniform_initializer(object):
         def __init__(self, stdv):
             self.stdv = stdv
+
         def __call__(self, tensor):
             nn.init.uniform_(tensor, -self.stdv, self.stdv)
-
 
     class xavier_normal_initializer(object):
         def __call__(self, tensor):
@@ -265,7 +277,7 @@ def main(args):
     model_init = uniform_initializer(0.01)
     emb_init = uniform_initializer(0.1)
 
-    device = torch.device("cuda" if args.cuda else "cpu")
+    device = torch.device("cuda:{}".format(args.device) if args.cuda else "cpu")
     args.device = device
 
     if args.enc_type == 'lstm':
@@ -286,20 +298,19 @@ def main(args):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         path = ".".join(args.decode_from.split("/")[-1].split(".")[:-1]) + \
-                "_{}".format(args.decoding_strategy)
+            "_{}".format(args.decoding_strategy)
         with torch.no_grad():
             if args.decode_input != "":
                 decode_data = MonoTextData(args.decode_input, vocab=vocab)
 
                 reconstruct(vae, decode_data, args.decoding_strategy,
-                    os.path.join(save_dir, path + ".rec"), args.device)
+                            os.path.join(save_dir, path + ".rec"), args.device)
             else:
                 z = vae.sample_from_prior(100)
                 sample_from_prior(vae, z, args.decoding_strategy,
-                    os.path.join(save_dir, path + ".sample"))
+                                  os.path.join(save_dir, path + ".sample"))
 
         return
-
 
     if args.eval:
         print('begin evaluation')
@@ -324,6 +335,10 @@ def main(args):
 
     enc_optimizer = optim.SGD(vae.encoder.parameters(), lr=1.0, momentum=args.momentum)
     dec_optimizer = optim.SGD(vae.decoder.parameters(), lr=1.0, momentum=args.momentum)
+    if args.mdr > 0:
+        args.mdr = torch.tensor(args.mdr, device=args.device)
+        lag_weight = torch.tensor(0.5, device=args.device, requires_grad=True)
+        mdr_optimizer = optim.RMSprop([lag_weight], lr=0.001)
     opt_dict['lr'] = 1.0
 
     iter_ = decay_cnt = 0
@@ -349,7 +364,7 @@ def main(args):
                                                   device=device,
                                                   batch_first=True)
     for epoch in range(args.epochs):
-        report_kl_loss = report_rec_loss = 0
+        report_kl_loss = report_rec_loss = report_mdr_loss = 0
         report_num_words = report_num_sents = 0
         for i in np.random.permutation(len(train_data_batch)):
             batch_data = train_data_batch[i]
@@ -372,11 +387,17 @@ def main(args):
 
                 enc_optimizer.zero_grad()
                 dec_optimizer.zero_grad()
+                if args.mdr > 0:
+                    mdr_optimizer.zero_grad()
 
                 burn_batch_size, burn_sents_len = batch_data_enc.size()
                 burn_num_words += (burn_sents_len - 1) * burn_batch_size
 
                 loss, loss_rc, loss_kl = vae.loss(batch_data_enc, kl_weight, nsamples=args.nsamples)
+
+                if args.mdr > 0:
+                    loss_mdr = lag_weight.abs() * (args.mdr - loss_kl)
+                    loss += loss_mdr
 
                 burn_cur_loss += loss.sum().item()
                 loss = loss.mean(dim=-1)
@@ -406,9 +427,16 @@ def main(args):
 
             enc_optimizer.zero_grad()
             dec_optimizer.zero_grad()
-
+            if args.mdr > 0:
+                mdr_optimizer.zero_grad()
 
             loss, loss_rc, loss_kl = vae.loss(batch_data, kl_weight, nsamples=args.nsamples)
+
+            if args.mdr > 0:
+                loss_mdr = lag_weight.abs() * (args.mdr - loss_kl)
+                loss += loss_mdr
+            else:
+                loss_mdr = torch.tensor(0.0)
 
             loss = loss.mean(dim=-1)
 
@@ -417,17 +445,26 @@ def main(args):
 
             loss_rc = loss_rc.sum()
             loss_kl = loss_kl.sum()
+            loss_mdr = loss_mdr.sum()
 
             if not aggressive_flag:
                 enc_optimizer.step()
 
             dec_optimizer.step()
 
+            if args.mdr > 0:
+                for group in mdr_optimizer.param_groups:
+                    for p in group['params']:
+                        p.grad = -1 * p.grad
+
+                mdr_optimizer.step()
+
             report_rec_loss += loss_rc.item()
             report_kl_loss += loss_kl.item()
+            report_mdr_loss += loss_mdr.item()
 
             if iter_ % log_niter == 0:
-                train_loss = (report_rec_loss  + report_kl_loss) / report_num_sents
+                train_loss = (report_rec_loss + report_kl_loss + report_mdr_loss) / report_num_sents
                 if aggressive_flag or epoch == 0:
                     vae.eval()
                     with torch.no_grad():
@@ -435,19 +472,19 @@ def main(args):
                         au, _ = calc_au(vae, val_data_batch)
                     vae.train()
 
-                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f,' \
-                           'au %d, time elapsed %.2fs' %
-                           (epoch, iter_, train_loss, report_kl_loss / report_num_sents, mi,
+                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, mdr: %.4f, mi: %.4f, recon: %.4f,'
+                          'au %d, time elapsed %.2fs' %
+                          (epoch, iter_, train_loss, report_kl_loss / report_num_sents, report_mdr_loss / report_num_sents, mi,
                            report_rec_loss / report_num_sents, au, time.time() - start))
                 else:
-                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, recon: %.4f,' \
-                           'time elapsed %.2fs' %
-                           (epoch, iter_, train_loss, report_kl_loss / report_num_sents,
+                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, mdr: %.4f, recon: %.4f,'
+                          'time elapsed %.2fs' %
+                          (epoch, iter_, train_loss, report_kl_loss / report_num_sents, report_mdr_loss / report_num_sents,
                            report_rec_loss / report_num_sents, time.time() - start))
 
                 sys.stdout.flush()
 
-                report_rec_loss = report_kl_loss = 0
+                report_rec_loss = report_kl_loss = report_mdr_loss = 0
                 report_num_words = report_num_sents = 0
 
             iter_ += 1
@@ -482,7 +519,7 @@ def main(args):
 
         if loss > opt_dict["best_loss"]:
             opt_dict["not_improved"] += 1
-            if opt_dict["not_improved"] >= decay_epoch and epoch >=15:
+            if opt_dict["not_improved"] >= decay_epoch and epoch >= 15:
                 opt_dict["best_loss"] = loss
                 opt_dict["not_improved"] = 0
                 opt_dict["lr"] = opt_dict["lr"] * lr_decay
@@ -521,9 +558,9 @@ def main(args):
     with torch.no_grad():
         calc_iwnll(vae, test_data_batch, args)
 
+
 if __name__ == '__main__':
     args = init_config()
     if args.decode_from == "" and not args.eval:
         sys.stdout = Logger(args.log_path)
     main(args)
-

@@ -8,19 +8,22 @@ from .lm import LSTM_LM
 
 class VAE(nn.Module):
     """VAE with normal prior"""
+
     def __init__(self, encoder, decoder, args):
         super(VAE, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
 
+        self.mixture = encoder.mixture
         self.args = args
 
         self.nz = args.nz
 
-        loc = torch.zeros(self.nz, device=args.device)
-        scale = torch.ones(self.nz, device=args.device)
+        if not self.mixture:
+            loc = torch.zeros(self.nz, device=args.device)
+            scale = torch.ones(self.nz, device=args.device)
 
-        self.prior = torch.distributions.normal.Normal(loc, scale)
+            self.prior = torch.distributions.normal.Normal(loc, scale)
 
     def encode(self, x, nsamples=1):
         """
@@ -75,7 +78,6 @@ class VAE(nn.Module):
 
         return self.decode(z, decoding_strategy, K)
 
-
     def loss(self, x, kl_weight, nsamples=1):
         """
         Args:
@@ -93,7 +95,6 @@ class VAE(nn.Module):
 
         # (batch)
         reconstruct_err = self.decoder.reconstruct_error(x, z).mean(dim=1)
-
 
         return reconstruct_err + kl_weight * KL, reconstruct_err, KL
 
@@ -140,9 +141,11 @@ class VAE(nn.Module):
                 different z points that will be evaluated, with
                 shape (k^2, nz), where k=(zmax - zmin)/space
         """
-
-        # (k^2)
-        return self.prior.log_prob(zrange).sum(dim=-1)
+        if self.mixture:
+            return self.encoder.mixture_log_probability(zrange)
+        else:
+            # (k^2)
+            return self.prior.log_prob(zrange).sum(dim=-1)
 
     def eval_complete_ll(self, x, z):
         """compute log p(z,x)
@@ -201,8 +204,10 @@ class VAE(nn.Module):
         Returns: Tensor
             Tensor: samples from prior with shape (nsamples, nz)
         """
-        return self.prior.sample((nsamples,))
-
+        if self.mixture:
+            return self.encoder.sample_from_prior(nsamples)
+        else:
+            return self.prior.sample((nsamples,))
 
     def sample_from_inference(self, x, nsamples=1):
         """perform sampling from inference net
@@ -213,7 +218,6 @@ class VAE(nn.Module):
         z, _ = self.encoder.sample(x, nsamples)
 
         return z
-
 
     def sample_from_posterior(self, x, nsamples):
         """perform MH sampling from model posterior
@@ -230,7 +234,7 @@ class VAE(nn.Module):
         samples = []
         for iter_ in range(total_iter):
             next = torch.normal(mean=cur,
-                std=cur.new_full(size=cur.size(), fill_value=self.args.mh_std))
+                                std=cur.new_full(size=cur.size(), fill_value=self.args.mh_std))
             # [batch_size, 1]
             next_ll = self.eval_complete_ll(x, next)
             ratio = next_ll - cur_ll
@@ -249,7 +253,6 @@ class VAE(nn.Module):
 
             if iter_ >= self.args.mh_burn_in and (iter_ - self.args.mh_burn_in) % self.args.mh_thin == 0:
                 samples.append(cur.unsqueeze(1))
-
 
         return torch.cat(samples, dim=1)
 
@@ -281,8 +284,6 @@ class VAE(nn.Module):
         mean, logvar = self.encoder.forward(x)
 
         return mean
-
-
 
     def eval_inference_dist(self, x, z, param=None):
         """

@@ -7,10 +7,12 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from .encoder import GaussianEncoderBase
 from ..utils import log_sum_exp
 
+
 class LSTMEncoder(GaussianEncoderBase):
     """Gaussian LSTM Encoder with constant-length batching"""
+
     def __init__(self, args, vocab_size, model_init, emb_init):
-        super(LSTMEncoder, self).__init__()
+        super(LSTMEncoder, self).__init__(args)
         self.ni = args.ni
         self.nh = args.enc_nh
         self.nz = args.nz
@@ -42,7 +44,6 @@ class LSTMEncoder(GaussianEncoderBase):
         for param in self.parameters():
             model_init(param)
         emb_init(self.embed.weight)
-
 
     def forward(self, input):
         """
@@ -76,9 +77,9 @@ class LSTMEncoder(GaussianEncoderBase):
 
 class VarLSTMEncoder(LSTMEncoder):
     """Gaussian LSTM Encoder with variable-length batching"""
+
     def __init__(self, args, vocab_size, model_init, emb_init):
         super(VarLSTMEncoder, self).__init__(args, vocab_size, model_init, emb_init)
-
 
     def forward(self, input):
         """
@@ -124,6 +125,3 @@ class VarLSTMEncoder(LSTMEncoder):
         KL = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1).sum(dim=1)
 
         return z, KL
-
-
-

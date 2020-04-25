@@ -21,6 +21,7 @@ decay_epoch = 2
 lr_decay = 0.5
 max_decay = 5
 
+
 def init_config():
     parser = argparse.ArgumentParser(description='VAE mode collapse study')
 
@@ -28,26 +29,25 @@ def init_config():
     parser.add_argument('--optim', type=str, default='sgd', help='')
     parser.add_argument('--nsamples', type=int, default=1, help='number of samples for training')
     parser.add_argument('--iw_nsamples', type=int, default=500,
-                         help='number of samples to compute importance weighted estimate')
+                        help='number of samples to compute importance weighted estimate')
 
     # plotting parameters
     parser.add_argument('--plot_mode', choices=['multiple', 'single'], default='multiple',
-        help="multiple denotes plotting multiple points, single denotes potting single point, \
+                        help="multiple denotes plotting multiple points, single denotes potting single point, \
         both of which have corresponding figures in the paper")
 
     parser.add_argument('--zmin', type=float, default=-20.0,
-        help="boundary to approximate mean of model posterior p(z|x)")
+                        help="boundary to approximate mean of model posterior p(z|x)")
     parser.add_argument('--zmax', type=float, default=20.0,
-        help="boundary to approximate mean of model posterior p(z|x)")
+                        help="boundary to approximate mean of model posterior p(z|x)")
     parser.add_argument('--dz', type=float, default=0.1,
-        help="granularity to approximate mean of model posterior p(z|x)")
+                        help="granularity to approximate mean of model posterior p(z|x)")
 
     parser.add_argument('--num_plot', type=int, default=500,
-        help='number of sampled points to be ploted')
+                        help='number of sampled points to be ploted')
 
     parser.add_argument('--plot_niter', type=int, default=200,
-        help="plot every plot_niter iterations")
-
+                        help="plot every plot_niter iterations")
 
     # annealing paramters
     parser.add_argument('--warm_up', type=int, default=10)
@@ -55,17 +55,15 @@ def init_config():
 
     # inference parameters
     parser.add_argument('--aggressive', type=int, default=0,
-        help='apply aggressive training when nonzero, reduce to vanilla VAE when aggressive is 0')
+                        help='apply aggressive training when nonzero, reduce to vanilla VAE when aggressive is 0')
 
     # others
     parser.add_argument('--seed', type=int, default=783435, metavar='S', help='random seed')
     parser.add_argument('--save_plot_data', type=str, default='')
 
-
     # these are for slurm purpose to save model
     parser.add_argument('--jobid', type=int, default=0, help='slurm job id')
     parser.add_argument('--taskid', type=int, default=0, help='slurm task id')
-
 
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()
@@ -86,8 +84,8 @@ def init_config():
     args.plot_dir = plot_dir
 
     id_ = "%s_aggressive%d_kls%.2f_warm%d_%d_%d_%d" % \
-            (args.dataset, args.aggressive, args.kl_start,
-             args.warm_up, args.jobid, args.taskid, args.seed)
+        (args.dataset, args.aggressive, args.kl_start,
+         args.warm_up, args.jobid, args.taskid, args.seed)
 
     save_path = os.path.join(save_dir, id_ + '.pt')
 
@@ -108,6 +106,7 @@ def init_config():
 
     return args
 
+
 def test(model, test_data_batch, mode, args):
 
     report_kl_loss = report_rec_loss = 0
@@ -121,7 +120,6 @@ def test(model, test_data_batch, mode, args):
 
         report_num_sents += batch_size
 
-
         loss, loss_rc, loss_kl = model.loss(batch_data, 1.0, nsamples=args.nsamples)
 
         assert(not loss_rc.requires_grad)
@@ -129,24 +127,24 @@ def test(model, test_data_batch, mode, args):
         loss_rc = loss_rc.sum()
         loss_kl = loss_kl.sum()
 
-
         report_rec_loss += loss_rc.item()
         report_kl_loss += loss_kl.item()
 
     mutual_info = calc_mi(model, test_data_batch)
 
-    test_loss = (report_rec_loss  + report_kl_loss) / report_num_sents
+    test_loss = (report_rec_loss + report_kl_loss) / report_num_sents
 
     nll = (report_kl_loss + report_rec_loss) / report_num_sents
     kl = report_kl_loss / report_num_sents
     ppl = np.exp(nll * report_num_sents / report_num_words)
 
-    print('%s --- avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f, nll: %.4f, ppl: %.4f' % \
-           (mode, test_loss, report_kl_loss / report_num_sents, mutual_info,
-            report_rec_loss / report_num_sents, nll, ppl))
+    print('%s --- avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f, nll: %.4f, ppl: %.4f' %
+          (mode, test_loss, report_kl_loss / report_num_sents, mutual_info,
+           report_rec_loss / report_num_sents, nll, ppl))
     sys.stdout.flush()
 
     return test_loss, nll, kl, ppl
+
 
 def calc_iwnll(model, test_data_batch, args):
 
@@ -172,6 +170,7 @@ def calc_iwnll(model, test_data_batch, args):
 
     print('iw nll: %.4f, iw ppl: %.4f' % (nll, ppl))
     sys.stdout.flush()
+
 
 def calc_mi(model, test_data_batch):
     mi = 0
@@ -210,19 +209,19 @@ def plot_multiple(model, plot_data, grid_z,
 
     save_path = os.path.join(args.plot_dir, 'aggr%d_iter%d_multiple.pickle' % (args.aggressive, iter_))
 
-    save_data = {'posterior': infer_posterior_mean[:,0].cpu().numpy(),
-                 'inference': infer_posterior_mean[:,1].cpu().numpy(),
+    save_data = {'posterior': infer_posterior_mean[:, 0].cpu().numpy(),
+                 'inference': infer_posterior_mean[:, 1].cpu().numpy(),
                  'kl': report_loss_kl / report_num_sample,
                  'mi': report_mi / report_num_sample
                  }
     pickle.dump(save_data, open(save_path, 'wb'))
+
 
 def plot_single(infer_mean, posterior_mean, args):
 
     # [batch, time]
     infer_mean = torch.cat(infer_mean, 1)
     posterior_mean = torch.cat(posterior_mean, 1)
-
 
     save_path = os.path.join(args.plot_dir, 'aggr%d_single.pickle' % args.aggressive)
     save_data = {'posterior': posterior_mean.cpu().numpy(),
@@ -231,15 +230,14 @@ def plot_single(infer_mean, posterior_mean, args):
     pickle.dump(save_data, open(save_path, 'wb'))
 
 
-
 def main(args):
 
     class uniform_initializer(object):
         def __init__(self, stdv):
             self.stdv = stdv
+
         def __call__(self, tensor):
             nn.init.uniform_(tensor, -self.stdv, self.stdv)
-
 
     class xavier_normal_initializer(object):
         def __call__(self, tensor):
@@ -278,7 +276,6 @@ def main(args):
     device = torch.device("cuda" if args.cuda else "cpu")
     args.device = device
     vae = VAE(encoder, decoder, args).to(device)
-
 
     if args.optim == 'sgd':
         enc_optimizer = optim.SGD(vae.encoder.parameters(), lr=1.0)
@@ -386,7 +383,6 @@ def main(args):
 
                 sub_iter += 1
 
-
             if args.plot_mode == 'single' and epoch == 0 and aggressive_flag:
                 vae.eval()
                 with torch.no_grad():
@@ -394,10 +390,8 @@ def main(args):
                     infer_mean.append(vae.calc_infer_mean(plot_data[0]))
                 vae.train()
 
-
             enc_optimizer.zero_grad()
             dec_optimizer.zero_grad()
-
 
             loss, loss_rc, loss_kl = vae.loss(batch_data, kl_weight, nsamples=args.nsamples)
 
@@ -428,20 +422,20 @@ def main(args):
             report_kl_loss += loss_kl.item()
 
             if iter_ % log_niter == 0:
-                train_loss = (report_rec_loss  + report_kl_loss) / report_num_sents
+                train_loss = (report_rec_loss + report_kl_loss) / report_num_sents
                 if aggressive_flag or epoch == 0:
                     vae.eval()
                     mi = calc_mi(vae, val_data_batch)
                     vae.train()
 
-                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f,' \
-                           'time elapsed %.2fs' %
-                           (epoch, iter_, train_loss, report_kl_loss / report_num_sents, mi,
+                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, mi: %.4f, recon: %.4f,'
+                          'time elapsed %.2fs' %
+                          (epoch, iter_, train_loss, report_kl_loss / report_num_sents, mi,
                            report_rec_loss / report_num_sents, time.time() - start))
                 else:
-                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, recon: %.4f,' \
-                           'time elapsed %.2fs' %
-                           (epoch, iter_, train_loss, report_kl_loss / report_num_sents,
+                    print('epoch: %d, iter: %d, avg_loss: %.4f, kl: %.4f, recon: %.4f,'
+                          'time elapsed %.2fs' %
+                          (epoch, iter_, train_loss, report_kl_loss / report_num_sents,
                            report_rec_loss / report_num_sents, time.time() - start))
 
                 sys.stdout.flush()
@@ -471,7 +465,6 @@ def main(args):
                     print("STOP BURNING")
 
                 pre_mi = cur_mi
-
 
                 # return
 
@@ -521,11 +514,10 @@ def main(args):
 
         vae.train()
 
-    print('best_loss: %.4f, kl: %.4f, nll: %.4f, ppl: %.4f' \
+    print('best_loss: %.4f, kl: %.4f, nll: %.4f, ppl: %.4f'
           % (best_loss, best_kl, best_nll, best_ppl))
 
     sys.stdout.flush()
-
 
     # compute importance weighted estimate of log p(x)
     vae.load_state_dict(torch.load(args.save_path))
@@ -536,6 +528,7 @@ def main(args):
                                                   batch_first=True)
     with torch.no_grad():
         calc_iwnll(vae, test_data_batch, args)
+
 
 if __name__ == '__main__':
     args = init_config()

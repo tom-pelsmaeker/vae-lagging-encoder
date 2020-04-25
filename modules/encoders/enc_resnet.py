@@ -5,9 +5,11 @@ import numpy as np
 
 from .encoder import GaussianEncoderBase
 
+
 def he_init(m):
-    s = np.sqrt(2./ m.in_features)
+    s = np.sqrt(2. / m.in_features)
     m.weight.data.normal_(0, s)
+
 
 class MaskedConv2d(nn.Conv2d):
     def __init__(self, include_center=False, *args, **kwargs):
@@ -22,9 +24,10 @@ class MaskedConv2d(nn.Conv2d):
         self.weight.data *= self.mask.cuda()
         return super(MaskedConv2d, self).forward(x)
 
+
 class ResidualBlock(nn.Module):
     def __init__(self, in_dim, out_dim=None, with_residual=True, with_batchnorm=True, mask=None,
-               kernel_size = 3, padding = 1):
+                 kernel_size=3, padding=1):
         if out_dim is None:
             out_dim = in_dim
         super(ResidualBlock, self).__init__()
@@ -60,12 +63,13 @@ class ResidualBlock(nn.Module):
 
 class ResNetEncoder(GaussianEncoderBase):
     """docstring for ResNetEncoder"""
+
     def __init__(self, args):
-        super(ResNetEncoder, self).__init__()
-        
+        super(ResNetEncoder, self).__init__(args)
+
         enc_modules = []
         img_h = args.img_size[1]
-        img_w = args.img_size[2] 
+        img_w = args.img_size[2]
         for i in range(len(args.enc_layers)):
             if i == 0:
                 input_dim = args.img_size[0]

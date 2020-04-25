@@ -11,6 +11,7 @@ from .encoder import GaussianEncoderBase
 A better ResNet baseline
 """
 
+
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes,
@@ -92,7 +93,7 @@ class ResNet(nn.Module):
 
 class ResNetEncoderV2(GaussianEncoderBase):
     def __init__(self, args, ngpu=1):
-        super(ResNetEncoderV2, self).__init__()
+        super(ResNetEncoderV2, self).__init__(args)
         self.ngpu = ngpu
         self.nz = args.nz
         self.nc = 1

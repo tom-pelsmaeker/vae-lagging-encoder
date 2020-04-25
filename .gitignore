@@ -1,2 +1,3 @@
 datasets/*
 *.pyc
+.remote-sync.json

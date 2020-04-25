@@ -43,7 +43,7 @@ By default it downloads all four datasets used in the paper, downloaded data is 
 ```
 python prepare_data.py --dataset yahoo
 ```
-The argument should be `synthetic`, `yahoo`, `yelp`, or `omniglot`. 
+The argument should be `synthetic`, `yahoo`, `yelp`, or `omniglot`.
 
 
 ## Usage
@@ -51,6 +51,14 @@ The argument should be `synthetic`, `yahoo`, `yelp`, or `omniglot`.
 Example script to train VAE on text data (training uses GPU when available):
 ```
 python text.py --dataset yahoo --aggressive 1 --warm_up 10 --kl_start 0.1
+```
+With MDR:
+```
+python text.py --dataset yahoo --warm_up 10 --mdr 5
+```
+With Mog prior:
+```
+python text.py --dataset yahoo --warm_up 10 --mdr 5 --learned_prior --num_components 100
 ```
 image data:
 ```
@@ -65,6 +73,9 @@ Here:
 * `--aggressive` controls whether applies aggressive training or not
 * `--kl_start` represents starting KL weight (set to 1.0 to disable KL annealing)
 * `--warm_up` represents number of annealing epochs (KL weight increases from `kl_start` to 1.0 linearly in the first `warm_up` epochs)
+* `--mdr` represents the minimum desired rate, i.e. a lower bound on the KL-divergence enforced with Lagrangian Relaxation
+* `--learned_prior` controls whether we learn a mixture of Gaussians prior.
+* `--num_components` specified the number of mixtures components when a learned prior is used.
 
 To run the code on your own text/image dataset, you need to create a new configuration file in `./config/` folder to specifiy network hyperparameters and datapath. If the new config file is `./config/config_abc.py`, then `--dataset` needs to be set as `abc` accordingly.
 
@@ -91,7 +102,7 @@ Here `--aggressive` specifies the aggressive training mode (should be the same a
 Similarly, run `plot_single.py` is able to generate the single-point trajectory figure.
 
 ## Text Generation
-Text generation is supported through sampling from either the prior or posterior (i.e. reconstruction). 
+Text generation is supported through sampling from either the prior or posterior (i.e. reconstruction).
 
 Generation from prior (by default it generates 100 samples):
 
@@ -131,6 +142,3 @@ booktitle={Proceedings of ICLR},
 year={2019}
 }
 ```
-
-
-
